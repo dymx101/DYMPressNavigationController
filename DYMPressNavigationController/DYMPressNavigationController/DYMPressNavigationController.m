@@ -8,10 +8,16 @@
 
 #import "DYMPressNavigationController.h"
 #import "DYMPressAnimationController.h"
-#import "DYMInteractiveTransition.h"
-#import "UIViewController+PressAnimationController.h"
+//#import "DYMInteractiveTransition.h"
 
-@interface DYMPressNavigationController () <UINavigationControllerDelegate> 
+@interface DYMPressNavigationController () <UINavigationControllerDelegate> {
+//    DYMInteractiveTransition    *_interactiveTransition;
+    UIPercentDrivenInteractiveTransition    *_interactTransition;
+}
+
+@property (nonatomic, copy) dispatch_block_t                        didStartPanBlock;
+@property (nonatomic, strong) UIPanGestureRecognizer                *panGesture;
+@property (nonatomic, assign, readonly) BOOL                        isPanning;
 
 @end
 
@@ -21,47 +27,33 @@
 - (void)viewDidLoad {
     [super viewDidLoad];
     
-    self.delegate = self;
-}
-
--(void)pushViewController:(UIViewController *)viewController animated:(BOOL)animated {
-    [super pushViewController:viewController animated:animated];
+    _panGesture = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handlePan:)];
     
-    DYMPressAnimationController *pushAnimCtrl = [[DYMPressAnimationController alloc] initWithReversed:NO];
-    [viewController set_dym_press_pushAnimationController:pushAnimCtrl];
-    
-    DYMPressAnimationController *popAnimCtrl = [[DYMPressAnimationController alloc] initWithReversed:YES];
-    [viewController set_dym_press_popAnimationController:popAnimCtrl];
-    
-    //
-    DYMInteractiveTransition *interactiveTransition = [DYMInteractiveTransition new];
+    _interactTransition = [UIPercentDrivenInteractiveTransition new];
     __weak typeof (self) ws = self;
-    interactiveTransition.didStartPanBlock = ^(void) {
+    self.didStartPanBlock = ^(void) {
         __strong typeof (self) ss = ws;
         [ss popViewControllerAnimated:YES];
     };
-    pushAnimCtrl.interactiveTransition = interactiveTransition;
-    popAnimCtrl.interactiveTransition = interactiveTransition;
+    
+    self.delegate = self;
 }
+
 
 #pragma mark - UINavigationControllerDelegate
 - (void)navigationController:(UINavigationController *)navigationController didShowViewController:(UIViewController *)viewController animated:(BOOL)animated {
-    
-    if ([viewController.dym_press_popAnimationController isKindOfClass:[DYMPressAnimationController class]]) {
-        DYMPressAnimationController *animController = (DYMPressAnimationController *)viewController.dym_press_popAnimationController;
-        [viewController.view addGestureRecognizer:animController.interactiveTransition.panGesture];
-    }
+    [viewController.view addGestureRecognizer:_panGesture];
 }
 
 - (id<UIViewControllerAnimatedTransitioning>)navigationController:(UINavigationController *)navigationController animationControllerForOperation:(UINavigationControllerOperation)operation fromViewController:(UIViewController *)fromVC toViewController:(UIViewController *)toVC {
     
     if (operation == UINavigationControllerOperationPush) {
         
-        return toVC.dym_press_pushAnimationController;
+        return [[DYMPressAnimationController alloc] initWithReversed:NO];
         
     } else if (operation == UINavigationControllerOperationPop) {
         
-        return fromVC.dym_press_popAnimationController;
+        return [[DYMPressAnimationController alloc] initWithReversed:YES];
     }
     
     return nil;
@@ -70,14 +62,54 @@
 - (id<UIViewControllerInteractiveTransitioning>)navigationController:(UINavigationController *)navigationController
                          interactionControllerForAnimationController:(id<UIViewControllerAnimatedTransitioning>)animationController {
     
-    if ([animationController isKindOfClass:[DYMPressAnimationController class]]) {
-        DYMPressAnimationController *animController = (DYMPressAnimationController *)animationController;
-        if (!animController.interactiveTransition.isPanning) {
-            return animController.interactiveTransition;
-        }
-    }
+//    if (!_isPanning) {
+//        return _interactTransition;
+//    }
     
     return nil;
+}
+
+
+#pragma mark - UIPanGestureRecognizer handler
+-(void)handlePan:(UIPanGestureRecognizer *)panGest {
+    
+    CGPoint location = [panGest locationInView:panGest.view];
+    CGFloat percentComplete = location.x / panGest.view.frame.size.width;
+    
+    switch (panGest.state) {
+            
+        case UIGestureRecognizerStateBegan: {
+            _isPanning = YES;
+            if (self.didStartPanBlock) {
+                self.didStartPanBlock();
+            }
+            break;
+        }
+            
+        case UIGestureRecognizerStateChanged: {
+            [_interactTransition updateInteractiveTransition:percentComplete];
+            break;
+        }
+            
+        case UIGestureRecognizerStateEnded: {
+            if (percentComplete <= 0.5) {
+                [_interactTransition finishInteractiveTransition];
+            } else {
+                [_interactTransition cancelInteractiveTransition];
+            }
+            _isPanning = NO;
+            break;
+        }
+            
+        case UIGestureRecognizerStateCancelled: {
+            [_interactTransition cancelInteractiveTransition];
+            _isPanning = NO;
+            break;
+        }
+            
+        default:
+            break;
+    }
 }
 
 @end
